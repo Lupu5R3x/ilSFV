@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data.SqlServerCe;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
 using ilSFV.Hash;
@@ -16,6 +18,7 @@ using ilSFV.Localization;
 using ilSFV.Model.Settings;
 using ilSFV.Model.Workset;
 using ilSFV.Tools;
+using FILETIME = System.Runtime.InteropServices.ComTypes.FILETIME;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Timer = System.Windows.Forms.Timer;
@@ -129,6 +132,8 @@ export results to text file
         public MainForm(string[] args)
         {
             InitializeComponent();
+
+            tpQuickSFV.Parent = null; // hide tab
 
             Language.Changed += delegate { SetLanguage(); };
             SetLanguage();
@@ -862,6 +867,7 @@ export results to text file
                 }
 
                 string[] lines = File.ReadAllLines(fileName, Encoding.GetEncoding(CODE_PAGE));
+                List<string> quicksfvLines = new List<string>();
 
                 ListViewGroup group = new ListViewGroup(lvwFiles.Groups.Count.ToString(), Path.GetFileName(fileName));
                 lvwFiles.Groups.Add(group);
@@ -881,6 +887,9 @@ export results to text file
                         (line.StartsWith("#") && (set.Type == ChecksumType.MD5 || set.Type == ChecksumType.SHA1)))
                     {
                         comment.AppendLine(line.Substring(1, line.Length - 1));
+
+                        if (line.StartsWith(";Q"))
+                            quicksfvLines.Add(line);
                     }
                     else
                     {
@@ -1013,7 +1022,10 @@ export results to text file
                         lvwFiles.Items.Add(item);
                     }
                 }
+
                 set.Comments = comment.ToString();
+                AnalyzeQuicksfvDatabase(set, quicksfvLines);
+
                 if (lvwFiles.Items.Count != 0)
                     lvwFiles.AutoResizeColumn(0, ColumnHeaderAutoResizeStyle.ColumnContent);
             }
@@ -1067,6 +1079,106 @@ export results to text file
                 Verify();
 
             return true;
+        }
+
+        private void AnalyzeQuicksfvDatabase(ChecksumSet set, List<string> quicksfvLines)
+        {
+            if (quicksfvLines.Count == 0)
+            {
+                set.QuickSfvAnalysis = null;
+                return;
+            }
+
+            StringBuilder analysis = new StringBuilder();
+            Regex oldSignature = new Regex("^[0-9A-F]{15}$", RegexOptions.IgnoreCase);
+            Regex newSignature = new Regex("^[0-9]{10}$", RegexOptions.IgnoreCase);
+            bool timeHandled = false;
+
+            foreach (string line in quicksfvLines)
+            {
+                string content = line.Substring(4); // skip ;Q3-
+
+                if (newSignature.IsMatch(content))
+                {
+                    analysis.AppendLine(string.Format("Installation signature Q3: {0} (random 10-digit number)", content));
+                }
+                else if (oldSignature.IsMatch(content))
+                {
+                    int startLow = content.Length - 8;
+                    FILETIME ft = new FILETIME()
+                    {
+                        dwLowDateTime = int.Parse(content.Substring(startLow), NumberStyles.HexNumber),
+                        dwHighDateTime = int.Parse(content.Substring(0, startLow), NumberStyles.HexNumber)
+                    };
+                    DateTime installDate = ConvertToDateTime(ft);
+
+                    analysis.AppendLine(string.Format("Installation signature: {0} (QuickSFV 1 and 2)", content));
+                    analysis.AppendLine(string.Format("Installation date: {0:O} (from signature)", installDate));
+                }
+                else
+                {
+                    byte[] bytes = Convert.FromBase64String(content);
+
+                    if (bytes.Length == 8 && !timeHandled)
+                    {
+                        int startHigh = bytes.Length - 4;
+                        FILETIME ft = new FILETIME()
+                        {
+                            dwLowDateTime = BitConverter.ToInt32(bytes.Take(startHigh).ToArray(), 0),
+                            dwHighDateTime = BitConverter.ToInt32(bytes, startHigh)
+                        };
+                        DateTime checkDate = ConvertToDateTime(ft);
+
+                        analysis.AppendLine(string.Format("Verification date last verified: {0:O}", checkDate));
+                        timeHandled = !timeHandled;
+                    }
+                    else
+                    {
+                        // bit array: 1 -> it succeeded, 0 -> it failed
+                        analysis.AppendLine("File status last verification:");
+
+                        int sfvFileCounter = 0;
+                        foreach (byte status in bytes)
+                        {
+                            for (int i = 7; i >= 0; i--)
+                            {
+                                string fileName = set.Files.ElementAtOrDefault(sfvFileCounter)?.FileName;
+
+                                if ((status & (int)Math.Pow(2, i)) == 0)
+                                    analysis.Append("NOT ");
+
+                                analysis.Append("OK: ").AppendLine(fileName);
+
+                                sfvFileCounter++;
+                                if (sfvFileCounter + 1 > set.Files.Count)
+                                    break;
+                            }
+                        }
+
+                        timeHandled = !timeHandled;
+                    }
+                }
+            }
+
+            set.QuickSfvAnalysis = analysis.ToString();
+
+            DateTime ConvertToDateTime(FILETIME ft)
+            {
+                ulong high = (ulong)ft.dwHighDateTime;
+                uint low = (uint)ft.dwLowDateTime;
+                long fileTime = (long)((high << 32) + low);
+                DateTime checkDate;
+                try
+                {
+                    checkDate = DateTime.FromFileTimeUtc(fileTime);
+                }
+                catch
+                {
+                    checkDate = DateTime.FromFileTimeUtc(0xFFFFFFFF);
+                }
+
+                return checkDate;
+            }
         }
 
         private void btnRightPane_Click(object sender, EventArgs e)
@@ -1211,6 +1323,11 @@ export results to text file
 
                     ChecksumSet set = _sets[_set_index];
                     txtComments.Text = set.Comments;
+                    txtQuickSFV.Text = set.QuickSfvAnalysis;
+                    if (string.IsNullOrEmpty(set.QuickSfvAnalysis))
+                        tpQuickSFV.Parent = null;
+                    else
+                        tpQuickSFV.Parent = tabControl1;
 
                     lvwFiles.Focus();
                     Application.DoEvents();
@@ -2640,11 +2757,19 @@ export results to text file
 
             if (lvwFiles.SelectedItems.Count == 1)
             {
-                txtComments.Text = ((ChecksumFile)lvwFiles.SelectedItems[0].Tag).Set.Comments;
+                ChecksumFile file = ((ChecksumFile)lvwFiles.SelectedItems[0].Tag);
+                txtComments.Text = file.Set.Comments;
+                txtQuickSFV.Text = file.Set.QuickSfvAnalysis;
+                if (string.IsNullOrEmpty(file.Set.QuickSfvAnalysis))
+                    tpQuickSFV.Parent = null;
+                else
+                    tpQuickSFV.Parent = tabControl1;
             }
             else
             {
                 txtComments.Text = string.Empty;
+                txtQuickSFV.Text = string.Empty;
+                tpQuickSFV.Parent = null;
             }
         }
 
