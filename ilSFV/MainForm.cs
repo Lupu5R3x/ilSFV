@@ -1379,10 +1379,26 @@ export results to text file
 
                         bool checkCacheThisFile = Program.Settings.General.UseCachedResults;
 
+                        // file checks for each rerun
+                        string fullFileName = Path.Combine(set.Directory, file.FileName);
+                        if (File.Exists(fullFileName))
+                        {
+                            if (file.FileInfo == null)
+                            {
+                                // the file isn't missing anymore
+                                file.FileInfo = TryGetNewFileInfo(fullFileName);
+                                checkCacheThisFile = false;
+                            }
+                        }
+                        else 
+                        {
+                            if (file.FileInfo != null)
+                                file.FileInfo = null;
+                        }
+
                         // check for .bad if missing
                         if (file.FileInfo == null)
                         {
-                            string fullFileName = Path.Combine(set.Directory, file.FileName);
                             string badFileName = fullFileName + ".bad";
                             if (File.Exists(badFileName))
                             {
@@ -1503,7 +1519,8 @@ export results to text file
                                 }
                             }
 
-                            if (foundItem != null)
+                            bool cachedBefore = foundItem != null;
+                            if (cachedBefore)
                             {
                                 cache.Remove(foundItem);
 
@@ -1512,6 +1529,12 @@ export results to text file
                                 {
                                     file.CurrentChecksum = null;
                                     foundItem = null;
+                                }
+                                else
+                                {
+                                    // use cached result
+                                    file.State = ChecksumFileState.OK;
+                                    _files_ok++;
                                 }
                             }
 
@@ -1530,7 +1553,9 @@ export results to text file
                                     if (file.FileInfo.Length > 1024 * 1024 && (long)speedSpan.TotalSeconds > 0)
                                         speed = file.FileInfo.Length / (long)speedSpan.TotalSeconds;
 
-                                    if (foundItem == null && Program.Settings.General.UseCachedResults)
+                                    CheckForChecksumMatch(file);
+
+                                    if (!cachedBefore && Program.Settings.General.UseCachedResults && file.State == ChecksumFileState.OK)
                                         Cache.UpdateMD5Cache(file.FileInfo, file.CurrentChecksum);
                                 }
                                 else if (set.Type == ChecksumType.SFV)
@@ -1545,7 +1570,9 @@ export results to text file
                                     if (file.FileInfo.Length > 1024 * 1024 && (long)speedSpan.TotalSeconds > 0)
                                         speed = file.FileInfo.Length / (long)speedSpan.TotalSeconds;
 
-                                    if (foundItem == null && Program.Settings.General.UseCachedResults)
+                                    CheckForChecksumMatch(file);
+
+                                    if (!cachedBefore && Program.Settings.General.UseCachedResults && file.State == ChecksumFileState.OK)
                                         Cache.UpdateSFVCache(file.FileInfo, file.CurrentChecksum);
                                 }
                                 else if (set.Type == ChecksumType.SHA1)
@@ -1560,41 +1587,15 @@ export results to text file
                                     if (file.FileInfo.Length > 1024 * 1024 && (long)speedSpan.TotalSeconds > 0)
                                         speed = file.FileInfo.Length / (long)speedSpan.TotalSeconds;
 
-                                    if (foundItem == null && Program.Settings.General.UseCachedResults)
+                                    CheckForChecksumMatch(file);
+
+                                    if (!cachedBefore && Program.Settings.General.UseCachedResults && file.State == ChecksumFileState.OK)
                                         Cache.UpdateSHA1Cache(file.FileInfo, file.CurrentChecksum);
                                 }
                                 else
                                 {
                                     throw new Exception(string.Format("{0} not implemented", set.Type));
                                 }
-                            }
-
-                            // test if it's ok/bad
-                            if (string.Compare(file.CurrentChecksum, file.OriginalChecksum, true) == 0)
-                            {
-                                file.State = ChecksumFileState.OK;
-                                _files_ok++;
-                            }
-                            else
-                            {
-                                file.State = ChecksumFileState.Bad;
-                                _files_bad++;
-
-                                // Rename to .bad
-                                string changedFileName = file.FileInfo.FullName;
-                                if (Program.Settings.Check.RenameBadFiles)
-                                {
-                                    string badFileName = changedFileName + ".bad";
-                                    if (!File.Exists(badFileName))
-                                    {
-                                        File.Move(changedFileName, badFileName);
-                                        changedFileName = badFileName;
-                                    }
-                                }
-
-                                // Delete failed files
-                                if (Program.Settings.Check.DeleteFailedFiles)
-                                    Program.SafeDelete(changedFileName);
                             }
                         }
 
@@ -1669,6 +1670,37 @@ export results to text file
                 _workingOnList = false;
                 btnGo.Text = Language.MainForm.GoButton;
                 _queueStop = false;
+            }
+        }
+
+        private void CheckForChecksumMatch(ChecksumFile file)
+        {
+            // test if it's ok/bad
+            if (string.Compare(file.CurrentChecksum, file.OriginalChecksum, true) == 0)
+            {
+                file.State = ChecksumFileState.OK;
+                _files_ok++;
+            }
+            else
+            {
+                file.State = ChecksumFileState.Bad;
+                _files_bad++;
+
+                // Rename to .bad
+                string changedFileName = file.FileInfo.FullName;
+                if (Program.Settings.Check.RenameBadFiles)
+                {
+                    string badFileName = changedFileName + ".bad";
+                    if (!File.Exists(badFileName))
+                    {
+                        File.Move(changedFileName, badFileName);
+                        changedFileName = badFileName;
+                    }
+                }
+
+                // Delete failed files
+                if (Program.Settings.Check.DeleteFailedFiles)
+                    Program.SafeDelete(changedFileName);
             }
         }
 
