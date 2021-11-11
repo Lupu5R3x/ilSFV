@@ -1555,7 +1555,7 @@ export results to text file
 
                                     CheckForChecksumMatch(file);
 
-                                    if (!cachedBefore && Program.Settings.General.UseCachedResults && file.State == ChecksumFileState.OK)
+                                    if (!cachedBefore && file.State == ChecksumFileState.OK)
                                         Cache.UpdateMD5Cache(file.FileInfo, file.CurrentChecksum);
                                 }
                                 else if (set.Type == ChecksumType.SFV)
@@ -1572,7 +1572,7 @@ export results to text file
 
                                     CheckForChecksumMatch(file);
 
-                                    if (!cachedBefore && Program.Settings.General.UseCachedResults && file.State == ChecksumFileState.OK)
+                                    if (!cachedBefore && file.State == ChecksumFileState.OK)
                                         Cache.UpdateSFVCache(file.FileInfo, file.CurrentChecksum);
                                 }
                                 else if (set.Type == ChecksumType.SHA1)
@@ -1589,7 +1589,7 @@ export results to text file
 
                                     CheckForChecksumMatch(file);
 
-                                    if (!cachedBefore && Program.Settings.General.UseCachedResults && file.State == ChecksumFileState.OK)
+                                    if (!cachedBefore && file.State == ChecksumFileState.OK)
                                         Cache.UpdateSHA1Cache(file.FileInfo, file.CurrentChecksum);
                                 }
                                 else
