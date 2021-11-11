@@ -1294,9 +1294,9 @@ export results to text file
             if (_sets.Count == 0)
                 return;
 
-            DateTime start = DateTime.Now;
             long bytesProcessed = 0;
             _workingOnList = true;
+
             try
             {
                 SetStatusText(Language.MainForm.Status_Working);
@@ -1308,6 +1308,7 @@ export results to text file
                 btnGo.Text = Language.MainForm.StopButton;
                 _queueStop = false;
                 _pause = false;
+                _stopwatch.Restart();
 
                 progressBar1.Value = 0;
                 progressBar2.Value = 0;
@@ -1586,7 +1587,7 @@ export results to text file
 
                         listItem.StateImageIndex = (int)file.State;
 
-                        UpdateProgressBarsAndText(bytesProcessed, start);
+                        UpdateProgressBarsAndText(bytesProcessed);
 
                         if (Program.Settings.General.HideGoodFiles && file.State == ChecksumFileState.OK)
                             lvwFiles.Items.Remove(listItem);
@@ -1601,7 +1602,7 @@ export results to text file
                     {
                         int tmp;
                         FindRenamedFiles(set, out tmp);
-                        UpdateProgressBarsAndText(bytesProcessed, start);
+                        UpdateProgressBarsAndText(bytesProcessed);
                     }
 
                     if (_queueHideGood)
@@ -1610,9 +1611,10 @@ export results to text file
                     LoadNewSets();
                 }
 
+                _stopwatch.Stop(); 
                 SetStatusText(Language.MainForm.Status_UpdatingCache);
                 Application.DoEvents();
-                TimeSpan timeSpent = DateTime.Now - start;
+                TimeSpan timeSpent = _stopwatch.Elapsed;
                 Program.Settings.Statistics.AddStats(_files_ok + _files_bad + _files_missing, _set_index, bytesProcessed / 1024 / 1024, _files_ok, timeSpent);
                 Cache.Clean();
 
@@ -1629,7 +1631,7 @@ export results to text file
             }
             finally
             {
-                TimeSpan totalTime = DateTime.Now - start;
+                TimeSpan totalTime = _stopwatch.Elapsed;
                 decimal totalMB = bytesProcessed / 1024.0m / 1024.0m;
                 int percentGood = _files_parts == 0 ? 0 : (_files_ok * 100) / _files_parts;
                 decimal mbPerSecond = totalTime.TotalSeconds > 0 ? totalMB / (decimal)totalTime.TotalSeconds : totalMB;
@@ -1686,7 +1688,7 @@ export results to text file
             }
         }
 
-        private void UpdateProgressBarsAndText(long bytesProcessed, DateTime start)
+        private void UpdateProgressBarsAndText(long bytesProcessed)
         {
             int filesLeft = _files_parts - _files_ok - _files_bad - _files_missing;
             decimal totalPercent = _totalSizeOfSets == 0 ? 100.0m : (bytesProcessed * 100.0m) / _totalSizeOfSets;
@@ -1694,7 +1696,7 @@ export results to text file
                 totalPercent = 100;
             progressBar2.Value = (int)totalPercent;
 
-            TimeSpan elapsed = DateTime.Now - start;
+            TimeSpan elapsed = _stopwatch.Elapsed; 
             string strElapsed = string.Format("{0:0}:{1:00}:{2:00}", elapsed.Hours, elapsed.Minutes, elapsed.Seconds);
             TimeSpan eta = (double)totalPercent <= double.Epsilon ? TimeSpan.Zero : TimeSpan.FromSeconds(elapsed.TotalSeconds * 100.0 / (double)totalPercent - elapsed.TotalSeconds + 1.0);
             if (eta < TimeSpan.Zero)
@@ -2092,9 +2094,9 @@ export results to text file
 
         private void CreateSet()
         {
-            DateTime start = DateTime.Now;
             long bytesProcessed = 0;
             _workingOnList = true;
+
             try
             {
                 SetStatusText(Language.MainForm.Status_Working);
@@ -2106,6 +2108,7 @@ export results to text file
                 btnGo.Text = Language.MainForm.StopButton;
                 _queueStop = false;
                 _pause = false;
+                _stopwatch.Restart();
 
                 progressBar1.Value = 0;
                 progressBar2.Value = 0;
@@ -2242,7 +2245,7 @@ export results to text file
 
                         bytesProcessed += file.FileInfo.Length;
 
-                        UpdateProgressBarsAndText(bytesProcessed, start);
+                        UpdateProgressBarsAndText(bytesProcessed);
 
                         if (Program.Settings.General.HideGoodFiles && file.State == ChecksumFileState.OK)
                             lvwFiles.Items.Remove(listItem);
@@ -2319,7 +2322,8 @@ export results to text file
                     }
                 }
 
-                TimeSpan timeSpent = DateTime.Now - start;
+                _stopwatch.Stop();
+                TimeSpan timeSpent = _stopwatch.Elapsed;
                 Program.Settings.Statistics.AddStats(_files_parts, _set_index, bytesProcessed / 1024 / 1024, _files_ok, timeSpent);
                 Cache.Clean();
 
@@ -2333,7 +2337,7 @@ export results to text file
             }
             finally
             {
-                TimeSpan totalTime = DateTime.Now - start;
+                TimeSpan totalTime = _stopwatch.Elapsed;
                 decimal totalMB = bytesProcessed / 1024.0m / 1024.0m;
                 int percentGood = _files_parts == 0 ? 0 : (_files_ok * 100) / _files_parts;
                 decimal mbPerSecond = totalTime.TotalSeconds > 0 ? totalMB / (decimal)totalTime.TotalSeconds : totalMB;
@@ -2387,6 +2391,7 @@ export results to text file
         }
 
         private bool _pause;
+        Stopwatch _stopwatch = new Stopwatch();
         private void btnPause_Click(object sender, EventArgs e)
         {
             if (_pause)
@@ -2399,6 +2404,7 @@ export results to text file
         {
             btnPause.Text = Language.MainForm.ResumeButton;
             _pause = true;
+            _stopwatch.Stop();
             SetStatusText(Language.MainForm.Status_Paused);
             btnHide.Enabled = false;
         }
@@ -2407,6 +2413,7 @@ export results to text file
         {
             btnPause.Text = Language.MainForm.PauseButton;
             _pause = false;
+            _stopwatch.Start();
             btnHide.Enabled = true;
         }
 
