@@ -1336,8 +1336,6 @@ export results to text file
 
                     List<ChecksumFile> cache = Cache.GetCache(set.Type, set.Directory);
 
-                    long speed = 0;
-
                     for (int i = 0; i < set.Files.Count; i++)
                     {
                         if (_queueHideGood)
@@ -1390,7 +1388,7 @@ export results to text file
                                 checkCacheThisFile = false;
                             }
                         }
-                        else 
+                        else
                         {
                             if (file.FileInfo != null)
                                 file.FileInfo = null;
@@ -1541,17 +1539,13 @@ export results to text file
                             // Calculate crc32/md5
                             if (string.IsNullOrEmpty(file.CurrentChecksum))
                             {
+                                IProgress<long> progress = new Progress<long>(bytesRead => UpdateFileProgressBar(file.FileInfo.Length, bytesRead));
+
                                 if (set.Type == ChecksumType.MD5)
                                 {
-                                    DateTime speedStart = DateTime.Now;
-
-                                    file.CurrentChecksum = GetChecksumWithProgress(MD5WithProgress, file.FileInfo, speed, bytesProcessed - file.FileInfo.Length, start);
+                                    file.CurrentChecksum = GetChecksumWithProgress(MD5WithProgress, file.FileInfo, progress);
                                     if (string.IsNullOrEmpty(file.CurrentChecksum))
                                         continue;
-
-                                    TimeSpan speedSpan = DateTime.Now - speedStart;
-                                    if (file.FileInfo.Length > 1024 * 1024 && (long)speedSpan.TotalSeconds > 0)
-                                        speed = file.FileInfo.Length / (long)speedSpan.TotalSeconds;
 
                                     CheckForChecksumMatch(file);
 
@@ -1560,15 +1554,9 @@ export results to text file
                                 }
                                 else if (set.Type == ChecksumType.SFV)
                                 {
-                                    DateTime speedStart = DateTime.Now;
-
-                                    file.CurrentChecksum = GetChecksumWithProgress(CRC32WithProgress, file.FileInfo, speed, bytesProcessed - file.FileInfo.Length, start);
+                                    file.CurrentChecksum = GetChecksumWithProgress(CRC32WithProgress, file.FileInfo, progress);
                                     if (string.IsNullOrEmpty(file.CurrentChecksum))
                                         continue;
-
-                                    TimeSpan speedSpan = DateTime.Now - speedStart;
-                                    if (file.FileInfo.Length > 1024 * 1024 && (long)speedSpan.TotalSeconds > 0)
-                                        speed = file.FileInfo.Length / (long)speedSpan.TotalSeconds;
 
                                     CheckForChecksumMatch(file);
 
@@ -1577,15 +1565,9 @@ export results to text file
                                 }
                                 else if (set.Type == ChecksumType.SHA1)
                                 {
-                                    DateTime speedStart = DateTime.Now;
-
-                                    file.CurrentChecksum = GetChecksumWithProgress(SHA1WithProgress, file.FileInfo, speed, bytesProcessed - file.FileInfo.Length, start);
+                                    file.CurrentChecksum = GetChecksumWithProgress(SHA1WithProgress, file.FileInfo, progress);
                                     if (string.IsNullOrEmpty(file.CurrentChecksum))
                                         continue;
-
-                                    TimeSpan speedSpan = DateTime.Now - speedStart;
-                                    if (file.FileInfo.Length > 1024 * 1024 && (long)speedSpan.TotalSeconds > 0)
-                                        speed = file.FileInfo.Length / (long)speedSpan.TotalSeconds;
 
                                     CheckForChecksumMatch(file);
 
@@ -1739,16 +1721,28 @@ export results to text file
             lvwFiles.MultiSelect = enabled;
         }
 
-        private string GetChecksumWithProgress(ParameterizedThreadStart pss, FileInfo fileInfo, long speed, long absoluteBytesProcessed, DateTime absoluteStart)
+        private void UpdateFileProgressBar(long fullFileSize, long bytesRead)
         {
-            FileInfoSpeed fis = new FileInfoSpeed { FileInfo = fileInfo };
+            if (fullFileSize != 0)
+            {
+                int percent = (int)(bytesRead * 100 / fullFileSize);
+
+                if (percent > 100)
+                    percent = 100;
+
+                if (!_pause)
+                    progressBar1.Value = percent;
+            }
+        }
+
+        private string GetChecksumWithProgress(ParameterizedThreadStart pss, FileInfo fileInfo, IProgress<long> progress = null)
+        {
+            FileInfoSpeed fis = new FileInfoSpeed { FileInfo = fileInfo, Progress = progress };
 
             Thread t = new Thread(pss);
             t.Priority = Thread.CurrentThread.Priority;
             t.Start(fis);
 
-            long length = fileInfo.Length;
-            DateTime start = DateTime.Now;
             while (!fis.IsDone)
             {
                 if (_queueStop)
@@ -1765,30 +1759,6 @@ export results to text file
                     return null;
                 }
 
-                if (length != 0)
-                {
-                    TimeSpan dur = DateTime.Now - start;
-                    if (dur.TotalSeconds > 0.1)
-                    {
-                        if (speed == 0)
-                        {
-                            TimeSpan speedSpan = DateTime.Now - absoluteStart;
-                            if ((long)speedSpan.TotalSeconds > 0)
-                                speed = absoluteBytesProcessed / (long)speedSpan.TotalSeconds;
-                        }
-
-                        long done = (long)(speed * dur.TotalSeconds);
-                        int percent = (int)(done * 100 / length);
-                        if (percent > 0)
-                        {
-                            if (percent > 100)
-                                percent = 100;
-
-                            if (!_pause)
-                                progressBar1.Value = percent;
-                        }
-                    }
-                }
                 Application.DoEvents();
                 Thread.Sleep(10);
             }
@@ -1804,7 +1774,7 @@ export results to text file
             FileInfoSpeed fis = (FileInfoSpeed)obj;
             try
             {
-                fis.Checksum = MD5.Calculate(fis.FileInfo);
+                fis.Checksum = MD5.Calculate(fis.FileInfo, fis.Progress);
             }
             catch (Exception ex)
             {
@@ -1819,7 +1789,7 @@ export results to text file
             FileInfoSpeed fis = (FileInfoSpeed)obj;
             try
             {
-                fis.Checksum = SHA1.Calculate(fis.FileInfo);
+                fis.Checksum = SHA1.Calculate(fis.FileInfo, fis.Progress);
             }
             catch (Exception ex)
             {
@@ -1834,7 +1804,7 @@ export results to text file
             FileInfoSpeed fis = (FileInfoSpeed)obj;
             try
             {
-                fis.Checksum = CRC32.Calculate(fis.FileInfo);
+                fis.Checksum = CRC32.Calculate(fis.FileInfo, fis.Progress);
             }
             catch (Exception ex)
             {
@@ -1850,6 +1820,7 @@ export results to text file
             public string Checksum { get; set; }
             public Exception Exception { get; set; }
             public bool IsDone { get; set; }
+            public IProgress<long> Progress { get; set; }
         }
 
         private void UpdateStatusBar()
@@ -1911,10 +1882,8 @@ export results to text file
 
             Dictionary<string, string> outOfSetFiles = new Dictionary<string, string>();
 
-            const long bytesProcessed = 0;
             DateTime start = DateTime.Now;
 
-            long speed = 0;
             foreach (ChecksumFile file in set.Files)
             {
                 if (file.State == ChecksumFileState.Missing)
@@ -1956,42 +1925,25 @@ export results to text file
                             if (!outOfSetFiles.TryGetValue(foundFile, out tmpChecksum))
                             {
                                 FileInfo fileInfo = TryGetNewFileInfo(foundFile);
+                                IProgress<long> progress = new Progress<long>(bytesRead => UpdateFileProgressBar(fileInfo.Length, bytesRead));
 
                                 if (set.Type == ChecksumType.MD5)
                                 {
-                                    DateTime speedStart = DateTime.Now;
-
-                                    file.CurrentChecksum = GetChecksumWithProgress(MD5WithProgress, fileInfo, speed, bytesProcessed, start);
+                                    file.CurrentChecksum = GetChecksumWithProgress(MD5WithProgress, fileInfo, progress);
                                     if (string.IsNullOrEmpty(file.CurrentChecksum))
                                         continue;
-
-                                    TimeSpan speedSpan = DateTime.Now - speedStart;
-                                    if (fileInfo.Length > 1024 * 1024 && (long)speedSpan.TotalSeconds > 0)
-                                        speed = fileInfo.Length / (long)speedSpan.TotalSeconds;
                                 }
                                 else if (set.Type == ChecksumType.SFV)
                                 {
-                                    DateTime speedStart = DateTime.Now;
-
-                                    file.CurrentChecksum = GetChecksumWithProgress(CRC32WithProgress, fileInfo, speed, bytesProcessed, start);
+                                    file.CurrentChecksum = GetChecksumWithProgress(CRC32WithProgress, fileInfo, progress);
                                     if (string.IsNullOrEmpty(file.CurrentChecksum))
                                         continue;
-
-                                    TimeSpan speedSpan = DateTime.Now - speedStart;
-                                    if (fileInfo.Length > 1024 * 1024 && (long)speedSpan.TotalSeconds > 0)
-                                        speed = fileInfo.Length / (long)speedSpan.TotalSeconds;
                                 }
                                 else if (set.Type == ChecksumType.SHA1)
                                 {
-                                    DateTime speedStart = DateTime.Now;
-
-                                    file.CurrentChecksum = GetChecksumWithProgress(SHA1WithProgress, fileInfo, speed, bytesProcessed, start);
+                                    file.CurrentChecksum = GetChecksumWithProgress(SHA1WithProgress, fileInfo, progress);
                                     if (string.IsNullOrEmpty(file.CurrentChecksum))
                                         continue;
-
-                                    TimeSpan speedSpan = DateTime.Now - speedStart;
-                                    if (fileInfo.Length > 1024 * 1024 && (long)speedSpan.TotalSeconds > 0)
-                                        speed = fileInfo.Length / (long)speedSpan.TotalSeconds;
                                 }
                                 else
                                 {
@@ -2208,8 +2160,6 @@ export results to text file
                     ChecksumSet set = _sets[_set_index];
                     Program.Settings.AddRecentFile(set.VerificationFileName);
 
-                    long speed = 0;
-
                     int setOKCount = 0;
                     for (int i = 0; i < set.Files.Count; i++)
                     {
@@ -2254,41 +2204,25 @@ export results to text file
                         }
                         else
                         {
+                            IProgress<long> progress = new Progress<long>(bytesRead => UpdateFileProgressBar(file.FileInfo.Length, bytesRead));
+
                             if (set.Type == ChecksumType.MD5)
                             {
-                                DateTime speedStart = DateTime.Now;
-
-                                file.CurrentChecksum = GetChecksumWithProgress(MD5WithProgress, file.FileInfo, speed, bytesProcessed, start);
+                                file.CurrentChecksum = GetChecksumWithProgress(MD5WithProgress, file.FileInfo, progress);
                                 if (string.IsNullOrEmpty(file.CurrentChecksum))
                                     continue;
-
-                                TimeSpan speedSpan = DateTime.Now - speedStart;
-                                if (file.FileInfo.Length > 1024 * 1024 && (long)speedSpan.TotalSeconds > 0)
-                                    speed = file.FileInfo.Length / (long)speedSpan.TotalSeconds;
                             }
                             else if (set.Type == ChecksumType.SFV)
                             {
-                                DateTime speedStart = DateTime.Now;
-
-                                file.CurrentChecksum = GetChecksumWithProgress(CRC32WithProgress, file.FileInfo, speed, bytesProcessed, start);
+                                file.CurrentChecksum = GetChecksumWithProgress(CRC32WithProgress, file.FileInfo, progress);
                                 if (string.IsNullOrEmpty(file.CurrentChecksum))
                                     continue;
-
-                                TimeSpan speedSpan = DateTime.Now - speedStart;
-                                if (file.FileInfo.Length > 1024 * 1024 && (long)speedSpan.TotalSeconds > 0)
-                                    speed = file.FileInfo.Length / (long)speedSpan.TotalSeconds;
                             }
                             else if (set.Type == ChecksumType.SHA1)
                             {
-                                DateTime speedStart = DateTime.Now;
-
-                                file.CurrentChecksum = GetChecksumWithProgress(SHA1WithProgress, file.FileInfo, speed, bytesProcessed, start);
+                                file.CurrentChecksum = GetChecksumWithProgress(SHA1WithProgress, file.FileInfo, progress);
                                 if (string.IsNullOrEmpty(file.CurrentChecksum))
                                     continue;
-
-                                TimeSpan speedSpan = DateTime.Now - speedStart;
-                                if (file.FileInfo.Length > 1024 * 1024 && (long)speedSpan.TotalSeconds > 0)
-                                    speed = file.FileInfo.Length / (long)speedSpan.TotalSeconds;
                             }
                             else
                             {
