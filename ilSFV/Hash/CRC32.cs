@@ -19,12 +19,12 @@ namespace ilSFV.Hash
         /// </summary>
         /// <param name="file">The file.</param>
         /// <returns>CRC32 Checksum as a string.</returns>
-        public static string Calculate(FileInfo file)
+        public static string Calculate(FileInfo file, IProgress<long> progress)
         {
             if (file == null)
                 throw new ArgumentNullException(nameof(file));
 
-            return FastCrcHexString(CalculateInt32(file));
+            return FastCrcHexString(CalculateInt32(file, progress));
         }
 
         /// <summary>
@@ -32,12 +32,12 @@ namespace ilSFV.Hash
         /// </summary>
         /// <param name="stream">Input stream.</param>
         /// <returns>CRC32 Checksum as a string.</returns>
-        public static string Calculate(Stream stream)
+        public static string Calculate(Stream stream, IProgress<long> progress)
         {
             if (stream == null)
                 throw new ArgumentNullException(nameof(stream));
 
-            return FastCrcHexString(CalculateInt32(stream));
+            return FastCrcHexString(CalculateInt32(stream, progress));
         }
 
         /// <summary>
@@ -45,12 +45,12 @@ namespace ilSFV.Hash
         /// </summary>
         /// <param name="data">The byte array.</param>
         /// <returns>CRC32 Checksum as a string.</returns>
-        public static string Calculate(byte[] data)
+        public static string Calculate(byte[] data, IProgress<long> progress)
         {
             if (data == null)
                 throw new ArgumentNullException(nameof(data));
 
-            return FastCrcHexString(CalculateInt32(data));
+            return FastCrcHexString(CalculateInt32(data, progress));
         }
 
         /// <summary>
@@ -58,14 +58,14 @@ namespace ilSFV.Hash
         /// </summary>
         /// <param name="file">The file.</param>
         /// <returns>CRC32 Checksum as a four byte signed integer (Int32).</returns>
-        private static uint CalculateInt32(FileInfo file)
+        private static uint CalculateInt32(FileInfo file, IProgress<long> progress)
         {
             if (file == null)
                 throw new ArgumentNullException(nameof(file));
 
             using (FileStream fileStream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read))
             {
-                return CalculateInt32(fileStream);
+                return CalculateInt32(fileStream, progress);
             }
         }
 
@@ -74,7 +74,7 @@ namespace ilSFV.Hash
         /// </summary>
         /// <param name="stream">The stream.</param>
         /// <returns>CRC32 Checksum as a four byte signed integer (Int32).</returns>
-        public static uint CalculateInt32(Stream stream)
+        public static uint CalculateInt32(Stream stream, IProgress<long> progress)
         {
             if (stream == null)
                 throw new ArgumentNullException(nameof(stream));
@@ -87,6 +87,7 @@ namespace ilSFV.Hash
             while (count > 0)
             {
                 crc32Result = Soft160.Data.Cryptography.CRC.Crc32(buffer, 0, count, crc32Result);
+                progress.Report(stream.Position);
                 count = stream.Read(buffer, 0, BUFFER_SIZE);
             }
 
@@ -98,14 +99,14 @@ namespace ilSFV.Hash
         /// </summary>
         /// <param name="data">The byte array.</param>
         /// <returns>CRC32 Checksum as a four byte signed integer (Int32).</returns>
-        private static uint CalculateInt32(byte[] data)
+        private static uint CalculateInt32(byte[] data, IProgress<long> progress)
         {
             if (data == null)
                 throw new ArgumentNullException("data");
 
             using (MemoryStream memoryStream = new MemoryStream(data))
             {
-                return CalculateInt32(memoryStream);
+                return CalculateInt32(memoryStream, progress);
             }
         }
 
